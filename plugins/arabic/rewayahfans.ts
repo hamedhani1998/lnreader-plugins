@@ -100,10 +100,27 @@ class RewayahFans implements Plugin.PluginBase {
     const ogImage = $('meta[property="og:image"]').attr('content') || '';
     novel.cover = ogImage || '';
 
-    const summaryEl = $(
-      '.entry-content > :not(.wp-block-jetpack-rating-star) p, .post-content > :not(.wp-block-jetpack-rating-star) p',
-    ).first();
-    novel.summary = summaryEl.text().trim() || '';
+    const summaryParts: string[] = [];
+    let inStory = false;
+    $('.entry-content > *').each((_, el) => {
+      const $el = $(el);
+      const tag = $el.prop('tagName')?.toLowerCase() || '';
+      const text = $el.text().trim();
+
+      if (tag === 'p' && text.startsWith('القصة')) {
+        inStory = true;
+        return;
+      }
+      if (inStory) {
+        if (tag === 'p' && text) {
+          summaryParts.push(text);
+        }
+        if (tag === 'div' && $el.hasClass('wp-block-buttons')) {
+          return false;
+        }
+      }
+    });
+    novel.summary = summaryParts.join('\n') || '';
 
     const metadataMap: Record<string, string> = {};
     $('ul.wp-block-list li').each((_, el) => {
