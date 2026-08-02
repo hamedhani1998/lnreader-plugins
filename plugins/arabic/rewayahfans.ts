@@ -102,6 +102,7 @@ class RewayahFans implements Plugin.PluginBase {
 
     const summaryParts: string[] = [];
     let inStory = false;
+    let inChapters = false;
     $('.entry-content > *').each((_, el) => {
       const $el = $(el);
       const tag = $el.prop('tagName')?.toLowerCase() || '';
@@ -112,11 +113,12 @@ class RewayahFans implements Plugin.PluginBase {
         return;
       }
       if (inStory) {
-        if (tag === 'p' && text) {
-          summaryParts.push(text);
-        }
-        if (tag === 'div' && $el.hasClass('wp-block-buttons')) {
+        if (tag === 'p' && text.startsWith('الفصول')) {
+          inChapters = true;
           return false;
+        }
+        if (tag === 'p' && text && !inChapters) {
+          summaryParts.push(text);
         }
       }
     });
