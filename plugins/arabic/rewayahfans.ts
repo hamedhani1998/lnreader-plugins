@@ -157,9 +157,11 @@ class RewayahFans implements Plugin.PluginBase {
             if (chapterSet.has(chapterPath)) return;
             const numMatch = text.match(/(\d+)/);
             if (!numMatch) return;
+            const cleanName = text.replace(/\bnew\b/i, '').trim();
+            if (cleanName.includes('النهاية')) return;
             chapterSet.add(chapterPath);
             novel.chapters!.push({
-              name: text,
+              name: cleanName,
               path: chapterPath,
               chapterNumber: parseInt(numMatch[1], 10),
             });
