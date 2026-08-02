@@ -168,44 +168,36 @@ class RewayahFans implements Plugin.PluginBase {
     }
 
     const chapterSet = new Set<string>();
-    const nextLink = $(
-      'a:contains("التالي"), a:contains("Next"), a[rel="next"]',
-    );
 
-    const collectChaptersFromPage = (html: string, baseUrl: string) => {
-      const $ = parseHTML(html);
-      const chapterName = $('title').text().trim().split(' - ')[0].trim();
-      const numMatch = chapterName.match(/(\d+)$/);
+    const collectChapterFromSlug = async (slug: string) => {
+      if (chapterSet.has(slug)) return false;
+      const pages = await this.fetchJson<WPPage[]>(
+        `${this.site}wp-json/wp/v2/pages?slug=${slug}&_fields=id,title,slug`,
+      );
+      const arr = Array.isArray(pages) ? pages : [pages];
+      if (arr.length === 0) return false;
+      chapterSet.add(slug);
+      const page = arr[0];
+      const title = page.title.rendered;
+      const numMatch = title.match(/(\d+)$/);
       const chapterNumber = numMatch ? parseInt(numMatch[1], 10) : 0;
-
-      if (chapterNumber > 0 && !chapterSet.has(baseUrl)) {
-        chapterSet.add(baseUrl);
-        novel.chapters!.push({
-          name: chapterName,
-          path: baseUrl,
-          chapterNumber,
-        });
-      }
+      novel.chapters!.push({
+        name: title,
+        path: slug,
+        chapterNumber,
+      });
+      return true;
     };
 
-    collectChaptersFromPage(html, novelPath);
+    const baseSlug = novelPath.replace(/-\d+$/, '');
+    let chapterNum = 1;
+    const safetyCounter = 500;
 
-    let nextHref = nextLink.attr('href') || '';
-    let safetyCounter = 0;
-    while (nextHref && safetyCounter < 300) {
-      safetyCounter++;
-      const nextPath = nextHref.replace(this.site, '').replace(/\/$/, '');
-      if (chapterSet.has(nextPath)) break;
-
-      const nextHtml = await this.fetchHtml(nextHref);
-      collectChaptersFromPage(nextHtml, nextPath);
-
-      const next$ = parseHTML(nextHtml);
-      nextHref =
-        next$('a:contains("التالي"), a:contains("Next"), a[rel="next"]').attr(
-          'href',
-        ) || '';
-      if (!nextHref || !nextHref.startsWith(this.site)) break;
+    for (let i = 0; i < safetyCounter; i++) {
+      const slug = chapterNum === 1 ? baseSlug : `${baseSlug}-${chapterNum}`;
+      const exists = await collectChapterFromSlug(slug);
+      if (!exists) break;
+      chapterNum++;
     }
 
     novel.chapters!.sort(
