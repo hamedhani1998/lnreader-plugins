@@ -64,7 +64,11 @@ class RewayahFans implements Plugin.PluginBase {
     return novels;
   }
 
-  async popularNovels(page: number): Promise<Plugin.NovelItem[]> {
+  async popularNovels(
+    page: number,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _options: Plugin.PopularNovelsOptions,
+  ): Promise<Plugin.NovelItem[]> {
     const allNovels = await this.loadAllNovels();
     if (page > 1) return [];
     return allNovels;
@@ -85,24 +89,20 @@ class RewayahFans implements Plugin.PluginBase {
     const html = await this.fetchHtml(`${this.site}${novelPath}`);
     const $ = parseHTML(html);
 
-    // Get novel name from <title> tag (format: "Novel Name - ...")
     const titleTag = $('title').text().trim();
     novel.name =
       titleTag.split(' - ')[0].trim() ||
-      titleTag.split('–')[0].trim() ||
+      titleTag.split('\u2013')[0].trim() ||
       'بدون عنوان';
 
-    // Cover image
-    const coverImg = $(
-      'img.wp-post-image, .entry-image img, .post-thumbnail img, figure.wp-block-image img',
-    ).first();
-    novel.cover = coverImg.attr('src') || coverImg.attr('data-src') || '';
+    novel.name = this.extractNovelName(novel.name);
 
-    // Summary
+    const ogImage = $('meta[property="og:image"]').attr('content') || '';
+    novel.cover = ogImage || '';
+
     const summaryEl = $('.entry-content p, .post-content p').first();
     novel.summary = summaryEl.text().trim() || '';
 
-    // Author
     let authorText = '';
     $('*').each((_, el) => {
       const text = $(el).text().trim();
@@ -120,14 +120,12 @@ class RewayahFans implements Plugin.PluginBase {
         return false;
       }
     });
-    // Fallback: .author a
     if (!authorText) {
       const authorEl = $('.author a, .novel-author a, .post-author a').first();
       authorText = authorEl.text().trim() || '';
     }
     novel.author = authorText;
 
-    // Genres
     const genres: string[] = [];
     $('.genres a, .taxonomy a, .post-tags a, .category a').each((_, el) => {
       const g = $(el).text().trim();
@@ -137,7 +135,6 @@ class RewayahFans implements Plugin.PluginBase {
     });
     novel.genres = genres.join(', ');
 
-    // Status
     let statusText = '';
     $('*').each((_, el) => {
       const text = $(el).text().trim();
@@ -170,34 +167,46 @@ class RewayahFans implements Plugin.PluginBase {
       novel.status = statusText;
     }
 
-    // Chapters
     const chapterSet = new Set<string>();
+    const nextLink = $(
+      'a:contains("التالي"), a:contains("Next"), a[rel="next"]',
+    );
 
-    $('a').each((_, el) => {
-      const href = $(el).attr('href') || '';
-      const text = $(el).text().trim();
+    const collectChaptersFromPage = (html: string, baseUrl: string) => {
+      const $ = parseHTML(html);
+      const chapterName = $('title').text().trim().split(' - ')[0].trim();
+      const numMatch = chapterName.match(/(\d+)$/);
+      const chapterNumber = numMatch ? parseInt(numMatch[1], 10) : 0;
 
-      if (!href || !text) return;
-      if (!href.startsWith(this.site)) return;
+      if (chapterNumber > 0 && !chapterSet.has(baseUrl)) {
+        chapterSet.add(baseUrl);
+        novel.chapters!.push({
+          name: chapterName,
+          path: baseUrl,
+          chapterNumber,
+        });
+      }
+    };
 
-      const chapterPath = href.replace(this.site, '').replace(/\/$/, '');
-      if (
-        chapterPath === novelPath ||
-        chapterPath === novelPath.replace(/\/$/, '')
-      )
-        return;
-      if (chapterSet.has(chapterPath)) return;
+    collectChaptersFromPage(html, novelPath);
 
-      const numMatch = text.match(/(\d+)/);
-      if (!numMatch) return;
+    let nextHref = nextLink.attr('href') || '';
+    let safetyCounter = 0;
+    while (nextHref && safetyCounter < 300) {
+      safetyCounter++;
+      const nextPath = nextHref.replace(this.site, '').replace(/\/$/, '');
+      if (chapterSet.has(nextPath)) break;
 
-      chapterSet.add(chapterPath);
-      novel.chapters!.push({
-        name: text,
-        path: chapterPath,
-        chapterNumber: parseInt(numMatch[1], 10),
-      });
-    });
+      const nextHtml = await this.fetchHtml(nextHref);
+      collectChaptersFromPage(nextHtml, nextPath);
+
+      const next$ = parseHTML(nextHtml);
+      nextHref =
+        next$('a:contains("التالي"), a:contains("Next"), a[rel="next"]').attr(
+          'href',
+        ) || '';
+      if (!nextHref || !nextHref.startsWith(this.site)) break;
+    }
 
     novel.chapters!.sort(
       (a, b) => (a.chapterNumber || 0) - (b.chapterNumber || 0),
