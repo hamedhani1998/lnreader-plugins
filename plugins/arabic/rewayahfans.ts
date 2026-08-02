@@ -50,12 +50,13 @@ class RewayahFans implements Plugin.PluginBase {
         linkEl.attr('href') || fig.find('a').first().attr('href') || '';
       const name = linkEl.text().trim();
       const cover = fig.find('img').attr('src') || '';
+      const decodedCover = cover.replace(/&#038;/g, '&').replace(/&amp;/g, '&');
 
       if (name && href) {
         const path = href.replace(this.site, '').replace(/\/$/, '');
         if (!seen.has(path)) {
           seen.add(path);
-          novels.push({ name, path, cover });
+          novels.push({ name, path, cover: decodedCover });
         }
       }
     });
