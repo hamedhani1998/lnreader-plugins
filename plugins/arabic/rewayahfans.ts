@@ -120,29 +120,56 @@ class RewayahFans implements Plugin.PluginBase {
 
     const chapterSet = new Set<string>();
 
-    $('.entry-content .wp-block-paragraph a, .entry-content p a').each(
-      (_, el) => {
-        const href = $(el).attr('href') || '';
-        const text = $(el).text().trim();
-
-        if (!href || !text) return;
-        if (!href.startsWith(this.site)) return;
-
-        const chapterPath = href.replace(this.site, '').replace(/\/$/, '');
-        if (chapterPath === novelPath) return;
-        if (chapterSet.has(chapterPath)) return;
-
-        const numMatch = text.match(/(\d+)/);
-        if (!numMatch) return;
-
-        chapterSet.add(chapterPath);
-        novel.chapters!.push({
-          name: text,
-          path: chapterPath,
-          chapterNumber: parseInt(numMatch[1], 10),
-        });
-      },
+    const chapterSection = $(
+      'p:contains("الفصول"), p:contains("Chapters"), p:contains("Fichier"), p:contains("Capitulos"), p:contains("Capítulos"), p:contains("Chapitres"), p:contains("Kapitel"), p:contains("Файл"), p:contains("Глава"), p:contains("章")',
     );
+
+    if (chapterSection.length > 0) {
+      chapterSection.nextAll().each((_, el) => {
+        const $el = $(el);
+        if ($el.hasClass('wp-block-paragraph') || $el.is('p')) {
+          $el.find('a').each((_, aEl) => {
+            const href = $(aEl).attr('href') || '';
+            const text = $(aEl).text().trim();
+            if (!href || !text) return;
+            if (!href.startsWith(this.site)) return;
+            const chapterPath = href.replace(this.site, '').replace(/\/$/, '');
+            if (chapterPath === novelPath) return;
+            if (chapterSet.has(chapterPath)) return;
+            const numMatch = text.match(/(\d+)/);
+            if (!numMatch) return;
+            chapterSet.add(chapterPath);
+            novel.chapters!.push({
+              name: text,
+              path: chapterPath,
+              chapterNumber: parseInt(numMatch[1], 10),
+            });
+          });
+        } else {
+          return false;
+        }
+      });
+    } else {
+      $('.entry-content .wp-block-paragraph a, .entry-content p a').each(
+        (_, el) => {
+          const href = $(el).attr('href') || '';
+          const text = $(el).text().trim();
+          if (!href || !text) return;
+          if (!href.startsWith(this.site)) return;
+          const chapterPath = href.replace(this.site, '').replace(/\/$/, '');
+          if (chapterPath === novelPath) return;
+          if (chapterSet.has(chapterPath)) return;
+          const numMatch = text.match(/(\d+)/);
+          if (!numMatch) return;
+          chapterSet.add(chapterPath);
+          novel.chapters!.push({
+            name: text,
+            path: chapterPath,
+            chapterNumber: parseInt(numMatch[1], 10),
+          });
+        },
+      );
+    }
 
     novel.chapters!.sort(
       (a, b) => (a.chapterNumber || 0) - (b.chapterNumber || 0),
