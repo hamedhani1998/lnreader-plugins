@@ -100,7 +100,9 @@ class RewayahFans implements Plugin.PluginBase {
     const ogImage = $('meta[property="og:image"]').attr('content') || '';
     novel.cover = ogImage || '';
 
-    const summaryEl = $('.entry-content p, .post-content p').first();
+    const summaryEl = $(
+      '.entry-content > :not(.wp-block-jetpack-rating-star) p, .post-content > :not(.wp-block-jetpack-rating-star) p',
+    ).first();
     novel.summary = summaryEl.text().trim() || '';
 
     const metadataMap: Record<string, string> = {};
@@ -191,7 +193,7 @@ class RewayahFans implements Plugin.PluginBase {
     if (arr.length > 0 && arr[0].content?.rendered) {
       const $ = parseHTML(arr[0].content.rendered);
       $(
-        'script, style, .sharedaddy, .jp-relatedposts, .wp-block-spacer, .simplefavorite-button',
+        'script, style, .sharedaddy, .jp-relatedposts, .wp-block-spacer, .simplefavorite-button, .wp-block-jetpack-rating-star',
       ).remove();
       return $.html();
     }
