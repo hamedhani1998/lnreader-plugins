@@ -103,102 +103,46 @@ class RewayahFans implements Plugin.PluginBase {
     const summaryEl = $('.entry-content p, .post-content p').first();
     novel.summary = summaryEl.text().trim() || '';
 
-    let authorText = '';
-    $('*').each((_, el) => {
+    const metadataMap: Record<string, string> = {};
+    $('ul.wp-block-list li').each((_, el) => {
       const text = $(el).text().trim();
-      if (text.includes('المؤلف') || text.includes('كاتب')) {
-        const parent = $(el).parent();
-        const sibling = parent.next();
-        if (sibling.length) {
-          authorText = sibling.text().trim();
-        } else {
-          const parts = text.split(':');
-          if (parts.length > 1) {
-            authorText = parts[1].trim();
-          }
-        }
-        return false;
+      const colonIdx = text.indexOf(':');
+      if (colonIdx > 0) {
+        const key = text.substring(0, colonIdx).trim();
+        const value = text.substring(colonIdx + 1).trim();
+        metadataMap[key] = value;
       }
     });
-    if (!authorText) {
-      const authorEl = $('.author a, .novel-author a, .post-author a').first();
-      authorText = authorEl.text().trim() || '';
-    }
-    novel.author = authorText;
 
-    const genres: string[] = [];
-    $('.genres a, .taxonomy a, .post-tags a, .category a').each((_, el) => {
-      const g = $(el).text().trim();
-      if (g && !genres.includes(g)) {
-        genres.push(g);
-      }
-    });
-    novel.genres = genres.join(', ');
-
-    let statusText = '';
-    $('*').each((_, el) => {
-      const text = $(el).text().trim();
-      if (text.includes('الحالة') || text.includes('Status')) {
-        const parent = $(el).parent();
-        const sibling = parent.next();
-        if (sibling.length) {
-          statusText = sibling.text().trim();
-        } else {
-          const parts = text.split(':');
-          if (parts.length > 1) {
-            statusText = parts[1].trim();
-          }
-        }
-        return false;
-      }
-    });
-    if (!statusText) {
-      const statusEl = $('.status, .novel-status, .post-status').first();
-      statusText = statusEl.text().trim() || '';
-    }
-    if (statusText.includes('مكتملة') || statusText.includes('Complete')) {
-      novel.status = 'مكتملة';
-    } else if (
-      statusText.includes('مستمرة') ||
-      statusText.includes('Ongoing')
-    ) {
-      novel.status = 'مستمرة';
-    } else {
-      novel.status = statusText;
-    }
+    novel.author = metadataMap['المؤلف'] || '';
+    novel.genres = metadataMap['التصنيفات'] || '';
+    novel.status = metadataMap['الحالة'] || '';
 
     const chapterSet = new Set<string>();
 
-    const collectChapterFromSlug = async (slug: string) => {
-      if (chapterSet.has(slug)) return false;
-      const pages = await this.fetchJson<WPPage[]>(
-        `${this.site}wp-json/wp/v2/pages?slug=${slug}&_fields=id,title,slug`,
-      );
-      const arr = Array.isArray(pages) ? pages : [pages];
-      if (arr.length === 0) return false;
-      chapterSet.add(slug);
-      const page = arr[0];
-      const title = page.title.rendered;
-      const numMatch = title.match(/(\d+)$/);
-      const chapterNumber = numMatch ? parseInt(numMatch[1], 10) : 0;
-      novel.chapters!.push({
-        name: title,
-        path: slug,
-        chapterNumber,
-      });
-      return true;
-    };
+    $('.entry-content .wp-block-paragraph a, .entry-content p a').each(
+      (_, el) => {
+        const href = $(el).attr('href') || '';
+        const text = $(el).text().trim();
 
-    const baseSlug = novelPath.replace(/-\d+$/, '');
-    let chapterNum = 1;
-    const safetyCounter = 500;
+        if (!href || !text) return;
+        if (!href.startsWith(this.site)) return;
 
-    for (let i = 0; i < safetyCounter; i++) {
-      const slug = chapterNum === 1 ? baseSlug : `${baseSlug}-${chapterNum}`;
-      const exists = await collectChapterFromSlug(slug);
-      if (!exists) break;
-      chapterNum++;
-    }
+        const chapterPath = href.replace(this.site, '').replace(/\/$/, '');
+        if (chapterPath === novelPath) return;
+        if (chapterSet.has(chapterPath)) return;
+
+        const numMatch = text.match(/(\d+)/);
+        if (!numMatch) return;
+
+        chapterSet.add(chapterPath);
+        novel.chapters!.push({
+          name: text,
+          path: chapterPath,
+          chapterNumber: parseInt(numMatch[1], 10),
+        });
+      },
+    );
 
     novel.chapters!.sort(
       (a, b) => (a.chapterNumber || 0) - (b.chapterNumber || 0),
