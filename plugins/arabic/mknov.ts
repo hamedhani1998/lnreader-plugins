@@ -816,7 +816,9 @@ function pickCmap(fontVersion: number): Record<string, string> {
 /** Decode a raw T-record payload with the given cipher. */
 function decodeChapter(content: string, cmap: Record<string, string>): string {
   return (
-    [...content]
+    // Array.from() rather than `[...content]` — TypeScript downlevels the
+    // spread to a helper that requires a real array and breaks on strings.
+    Array.from(content)
       .map(ch => cmap[ch] ?? ch)
       .join('')
       // CJK / Hangul / Katakana & other scripts the font renders as nothing
