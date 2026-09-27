@@ -5,6 +5,19 @@ import { load as loadCheerio } from 'cheerio';
 import { Filters, FilterTypes } from '@libs/filterInputs';
 
 /**
+ * Drop markup that would execute instead of display, keeping everything else
+ * as the site sent it. Mirrors the epub exporter (src/lib/epub.ts) so a
+ * chapter reads the same in the app as it does in an exported file.
+ */
+function sanitizeHtml(html: string): string {
+  return html
+    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
+    .replace(/<(\w+)([^>]*?)\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi, '<$1$2')
+    .replace(/javascript\s*:/gi, '');
+}
+
+/**
  * Azora Manga.
  *
  * The site used to run Madara (WP Reader) at azoramoon.com, but it has since
@@ -39,10 +52,19 @@ class AzoraFly implements Plugin.PluginBase {
 
   private baseUrl = 'https://azorafly.com';
 
+  /**
+   * The site sits behind Cloudflare, which answers plain HTTP clients with a
+   * 403 challenge page. The shared multisrc templates point users at the
+   * app's webview in that case, because a real browser passes the challenge
+   * and the plugin's own request never will — so the message has to name the
+   * way out rather than dead-end on a bare status code.
+   */
   private async fetchHtml(url: string): Promise<string> {
     const res = await fetchApi(url);
     if (!res.ok) {
-      throw new Error(`Could not reach site (${res.status})`);
+      throw new Error(
+        `Could not reach site (${res.status}) try to open in webview.`,
+      );
     }
     return res.text();
   }
@@ -199,7 +221,11 @@ class AzoraFly implements Plugin.PluginBase {
       .map(html => html.trim())
       .filter(html => html.length > 0);
 
-    return paragraphs.join('\n') || content.html()?.trim() || '';
+    // The reader renders chapter text as HTML, so a response carrying a script
+    // or style block inside a paragraph would execute rather than display.
+    // Strip those before the text leaves the plugin, the same way the epub
+    // exporter does (src/lib/epub.ts).
+    return sanitizeHtml(paragraphs.join('\n') || content.html()?.trim() || '');
   }
 
   async searchNovels(
