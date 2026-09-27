@@ -438,11 +438,16 @@ export class LightNovelWPPlugin implements Plugin.PluginBase {
         throw error;
       }
     }
+    // The chapter text lives in the `epcontent` block. Older child themes
+    // closed it with a `bottomnav` div, but that wrapper is gone on current
+    // ones, so anchoring on it silently returned an empty chapter. Cut the
+    // block off at the next structural landmark instead, whichever is
+    // present, and fall back to the whole document when none of them is.
+    const content = data.match(
+      /<div[^>]*class="[^"]*\bepcontent\b[^"]*"[^>]*>([^]*?)(?=<div[^>]*class="?bottomnav|<script|<\/body)/,
+    );
     return (
-      data
-        .match(/<div.*?class="epcontent ([^]*?)<div.*?class="?bottomnav/g)?.[0]
-        .match(/<p[^>]*>([^]*?)<\/p>/g)
-        ?.join('\n') || ''
+      (content?.[1] ?? data).match(/<p[^>]*>([^]*?)<\/p>/g)?.join('\n') || ''
     );
   }
 
