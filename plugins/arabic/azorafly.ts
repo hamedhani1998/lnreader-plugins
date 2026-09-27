@@ -25,11 +25,11 @@ function sanitizeHtml(html: string): string {
  * chapter text are all server-rendered, so they can be scraped directly.
  *
  * Two limits are worth knowing about:
- *  - the chapter list on a series page only carries the newest 20 chapters
- *    plus a "featured" one, so novels are listed newest-first;
- *  - `/novels` and `/mangas` have no pages, and `?page=` is ignored, so paging
- *    is client-side and both popularNovels and searchNovels return the first
- *    page only.
+ *  - a series page lists the newest 20 chapters plus chapter 1 as a
+ *    "featured" link, so a long novel's middle chapters need a page the
+ *    plugin does not have;
+ *  - the listing pages carry no pagination, so both popularNovels and
+ *    searchNovels return the first page only.
  */
 class AzoraFly implements Plugin.PluginBase {
   id = 'azorafly';
@@ -44,13 +44,23 @@ class AzoraFly implements Plugin.PluginBase {
       value: 'novels',
       options: [
         { label: 'Novels', value: 'novels' },
-        { label: 'Manga', value: 'manga' },
+        { label: 'Manga', value: 'comics' },
       ],
       type: FilterTypes.Picker,
     },
   } satisfies Filters;
 
   private baseUrl = 'https://azorafly.com';
+
+  /**
+   * The two catalogues. They are separate routes — the comics listing is at
+   * /comics, not /mangas, which is a 404 that answers with a normal-looking
+   * page and so reads as "this site has no comics" rather than as an error.
+   */
+  private readonly catalogs = {
+    novels: '/novels',
+    manga: '/comics',
+  } as const;
 
   /**
    * The site sits behind Cloudflare, which answers plain HTTP clients with a
@@ -119,7 +129,11 @@ class AzoraFly implements Plugin.PluginBase {
     void showLatestNovels;
 
     const html = await this.fetchHtml(
-      `${this.baseUrl}/${filters.sort.value === 'manga' ? 'mangas' : 'novels'}`,
+      `${this.baseUrl}/${
+        filters.sort.value === 'manga'
+          ? this.catalogs.manga
+          : this.catalogs.novels
+      }`,
     );
     return this.parseCards(html);
   }
@@ -140,37 +154,51 @@ class AzoraFly implements Plugin.PluginBase {
       $('img[src*="/upload/series/"]').first().attr('src') ||
       $('img[alt*="Cover"]').first().attr('src');
 
-    const pageText = $('body').text().replace(/\s+/g, ' ');
-
-    const labelFor = (label: string) => {
-      const i = pageText.indexOf(label);
-      if (i < 0) return '';
-      return pageText.slice(i + label.length, i + label.length + 40).trim();
+    // Each info tile is an Arabic label in an <h1> with the value beside it.
+    // The status value is the English ONGOING/COMPLETED the site renders, not
+    // an Arabic word, so read the tile rather than searching the page text.
+    const tileValue = (label: string) => {
+      const heading = $('h1')
+        .toArray()
+        .find(el => $(el).text().trim() === label);
+      if (!heading) return '';
+      const tile = $(heading).closest('div').text().replace(/\s+/g, ' ').trim();
+      return tile.slice(label.length).trim();
     };
 
-    const status = labelFor('الحالة');
-    const statusMap: Record<string, string> = {
-      مكتملة: NovelStatus.Completed,
-      مستمرة: NovelStatus.Ongoing,
-      متوقفة: NovelStatus.OnHiatus,
-      ملغاة: NovelStatus.Cancelled,
+    const statusValue = tileValue('الحالة');
+    const statusMap: Record<string, NovelStatus> = {
+      COMPLETED: NovelStatus.Completed,
+      ONGOING: NovelStatus.Ongoing,
+      HIATUS: NovelStatus.OnHiatus,
+      CANCELLED: NovelStatus.Cancelled,
     };
-    const statusText = Object.keys(statusMap).find(k => status.includes(k));
+    const statusKey = Object.keys(statusMap).find(k =>
+      statusValue.toUpperCase().includes(k),
+    );
 
+    // The genre pills link to /series?genres=%2B<n> — an id, not a name, so
+    // there is no slug to read. The label is the pill's own text.
     const genres = [
       ...new Set(
-        [...html.matchAll(/href="\/(?:genre|tag)\/([^"]+)"/g)].map(m =>
-          decodeURIComponent(m[1]).replace(/-/g, ' '),
-        ),
+        $('a[href^="/series?genres="]')
+          .toArray()
+          .map(el => $(el).text().replace(/\s+/g, ' ').trim())
+          .filter(Boolean),
       ),
     ];
 
-    // The summary is the long <p> in the main column, before the chapter list.
-    const summary = $('section p')
-      .toArray()
-      .map(el => $(el).text().trim())
-      .filter(t => t.length > 60)
-      .sort((a, b) => b.length - a.length)[0];
+    // The synopsis is not in the body markup — the page has no <p> holding
+    // it. It is published as the page's description, wrapped in <p> and cut
+    // to 200 characters, so strip the tags and keep what survived the cut.
+    const description =
+      $('meta[property="og:description"]').attr('content') ||
+      $('meta[name="description"]').attr('content') ||
+      '';
+    const summary = loadCheerio(`<div>${description}</div>`)('div')
+      .text()
+      .replace(/\s+/g, ' ')
+      .trim();
 
     const chapters: Plugin.ChapterItem[] = [];
     const seen = new Set<string>();
@@ -197,8 +225,8 @@ class AzoraFly implements Plugin.PluginBase {
       cover,
       author: 'Unknown',
       genres: genres.join(', '),
-      summary: summary || '',
-      status: statusText ? statusMap[statusText] : NovelStatus.Unknown,
+      summary,
+      status: statusKey ? statusMap[statusKey] : NovelStatus.Unknown,
       chapters,
     };
   }
@@ -209,7 +237,14 @@ class AzoraFly implements Plugin.PluginBase {
 
     const content = $('.novel-reader-content').first();
     if (!content.length) {
-      throw new Error('Could not find the chapter text on the page');
+      // The site answers a locked chapter with 200 and a page that has the
+      // reader's chrome but no prose, so this is the paywall rather than a
+      // broken selector. Locked chapters are rare — none of the first twelve
+      // novels in /novels had one — but the reader should be told which it
+      // is, and the page shows the paywall, not the text.
+      throw new Error(
+        'This chapter is not available on the site (locked). Open the chapter in the webview to read it.',
+      );
     }
 
     // The block also holds the reader's own promo/notice paragraphs; the prose
@@ -245,14 +280,18 @@ class AzoraFly implements Plugin.PluginBase {
         novel.name.toLowerCase().includes(term),
       );
 
-    // Novels first, so search still answers if the manga listing is the half
+    // Novels first, so search still answers if the comics listing is the half
     // that is down; a failed half is skipped rather than failing the query.
-    const results = await match(await this.fetchHtml(`${this.baseUrl}/novels`));
+    const results = await match(
+      await this.fetchHtml(`${this.baseUrl}${this.catalogs.novels}`),
+    );
 
     try {
-      results.push(...match(await this.fetchHtml(`${this.baseUrl}/mangas`)));
+      results.push(
+        ...match(await this.fetchHtml(`${this.baseUrl}${this.catalogs.manga}`)),
+      );
     } catch {
-      // manga listing unavailable — search the novels alone
+      // comics listing unavailable — search the novels alone
     }
 
     return results;
