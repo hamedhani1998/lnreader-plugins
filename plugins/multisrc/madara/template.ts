@@ -433,7 +433,24 @@ export class MadaraPlugin implements Plugin.PluginBase {
 
     if (novelChapter.length) {
       chapterText.find('.nhv-reader-promo, .nhv-reader-store-promo').remove();
-      chapterText.find('section').remove();
+      // Drop only the <section>s the theme injects, and judge them on what is
+      // inside rather than on a class name: child themes obfuscate that name
+      // per site (`raf3e99…`, `rb34c8…` and `rcd3f4…` on three Riwyat
+      // novels), so no fixed selector catches them all. Their shape is the
+      // constant part — across those three novels, over chapters of 89, 430
+      // and 152 paragraphs, all 44 injected <section>s held no <p> and no
+      // heading. A <section> that does hold prose is the author's, and
+      // removing it by tag would have taken the writing with the advert.
+      chapterText
+        .find('section')
+        .filter((_, section) => {
+          const node = loadedCheerio(section);
+          return (
+            node.find('p, h1, h2, h3, h4, h5, h6').length === 0 &&
+            node.text().trim() !== ''
+          );
+        })
+        .remove();
     }
 
     if (this.options?.customJs) {
