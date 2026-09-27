@@ -199,10 +199,9 @@ class GalaxyNovels implements Plugin.PluginBase {
     // from before falling back to whatever HTML we were given.
     if (chaptersIndexUrl) {
       try {
-        const indexUrl = chaptersIndexUrl.startsWith('http')
-          ? chaptersIndexUrl
-          : `${this.baseUrl}${chaptersIndexUrl}`;
-        const index = await this.fetchJson<ChaptersIndex>(indexUrl);
+        const index = await this.fetchJson<ChaptersIndex>(
+          this.resolveUrl(chaptersIndexUrl),
+        );
 
         chapters = index.chapters.map(ch => this.toChapter(ch, novelPath));
       } catch {
@@ -289,7 +288,14 @@ class GalaxyNovels implements Plugin.PluginBase {
     ).first();
 
     // The surface also carries the reader's own chrome (settings panels, the
-    // progress bar) — keep only the prose paragraphs.
+    // progress bar) and the site's decoy markup — keep only the prose.
+    //
+    // The non-paragraph children are not lost prose. Measured on a live
+    // chapter: 129 child elements, of which 97 are <p> and the other 32 are
+    // <small>/<i>/<span>/<b> carrying hidden, aria-hidden, role="presentation"
+    // and data-wor-decoy="1" — SEO bait the site injects into the text
+    // surface. Returning the whole block would splice that markup into every
+    // chapter, so the paragraph filter is the thing keeping it out.
     const paragraphs = content.find('p').toArray();
     if (paragraphs.length) {
       const body = paragraphs
