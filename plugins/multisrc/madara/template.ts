@@ -334,6 +334,17 @@ export class MadaraPlugin implements Plugin.PluginBase {
         .map((i, el) => loadedCheerio(el).text())
         .get()
         .join('\n\n')
+        .trim() ||
+      // Not every NovelHubv page puts the blurb in a <p>: some render it as a
+      // plain div, and that div carries an <h2> repeating the title. Reaching
+      // for the text-bearing element inside it skips the repeated heading
+      // while still covering a page whose blurb is an unclassed div.
+      loadedCheerio(
+        '.nhv-novel-synopsis > div > .text-body-2, .nhv-novel-synopsis > div:not(:has(> h2))',
+      )
+        .map((i, el) => loadedCheerio(el).text())
+        .get()
+        .join('\n\n')
         .trim();
     const chapters: Plugin.ChapterItem[] = [];
     let html = '';
